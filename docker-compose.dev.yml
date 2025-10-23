@@ -1,0 +1,67 @@
+# VX Autopeças - Docker Compose (Desenvolvimento)
+# Versão simplificada para desenvolvimento local
+
+version: '3.8'
+
+services:
+  # Banco de Dados PostgreSQL
+  database:
+    image: postgres:15-alpine
+    container_name: vx-autopecas-db-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vx_autopecas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - vx-dev-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vx_autopecas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (desenvolvimento)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: vx-autopecas-api-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: vx_autopecas
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: dev_jwt_secret_key
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - vx-dev-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+# Volumes para desenvolvimento
+volumes:
+  postgres_dev_data:
+    driver: local
+
+# Rede para desenvolvimento
+networks:
+  vx-dev-network:
+    driver: bridge

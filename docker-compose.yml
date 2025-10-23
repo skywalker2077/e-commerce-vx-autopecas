@@ -1,0 +1,130 @@
+# VX Autopeças - Docker Compose
+# Orquestração completa: Frontend, Backend e PostgreSQL
+
+version: '3.8'
+
+services:
+  # Banco de Dados PostgreSQL
+  database:
+    image: postgres:15-alpine
+    container_name: vx-autopecas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vx_autopecas
+      POSTGRES_USER: vxuser
+      POSTGRES_PASSWORD: vx_secure_password_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - vx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vxuser -d vx_autopecas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vx-autopecas-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: vx_autopecas
+      DB_USER: vxuser
+      DB_PASSWORD: vx_secure_password_2024
+      JWT_SECRET: vx_autopecas_jwt_super_secret_key_production_2024
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - vx-network
+    volumes:
+      - ./backend/uploads:/app/uploads
+    command: >
+      sh -c "
+        echo 'Aguardando banco de dados...' &&
+        sleep 15 &&
+        npm run init-db &&
+        npm start
+      "
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vx-autopecas-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_TELEMETRY_DISABLED: 1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - vx-network
+
+  # Redis para Cache (opcional)
+  redis:
+    image: redis:7-alpine
+    container_name: vx-autopecas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - vx-network
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # Nginx Load Balancer/Proxy (opcional)
+  nginx:
+    image: nginx:alpine
+    container_name: vx-autopecas-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - vx-network
+
+# Volumes persistentes
+volumes:
+  postgres_data:
+    driver: local
+    name: vx_autopecas_postgres_data
+  redis_data:
+    driver: local
+    name: vx_autopecas_redis_data
+
+# Rede customizada
+networks:
+  vx-network:
+    driver: bridge
+    name: vx-autopecas-network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
